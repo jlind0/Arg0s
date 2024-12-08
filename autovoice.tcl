@@ -1,11 +1,14 @@
 # Auto-Voice and No-Voice Management Script for Eggdrop
-# This script will auto-voice users, track their IP/host, and manage "no voice" restrictions.
+# This script will handle multiple channels and use a single no_voice_list across them.
 
 # File to store the no_voice_list
 set no_voice_file "data/no_voice_list.txt"
 
 # List to store IPs/hosts that are flagged as "do not voice"
 set no_voice_list {}
+
+# Channels to monitor (space-separated)
+set monitored_channels "#icons_of_vanity #odyss3us"
 
 # Function to save the no_voice_list to a file
 proc save_no_voice_list {} {
@@ -41,23 +44,26 @@ load_no_voice_list
 # Call this function to save the list when the bot shuts down
 bind evnt - shutdown save_no_voice_list
 
-
-# Channel to monitor (modify as needed)
-set monitored_channel "#icons_of_vanity"
-
 # Bind JOIN events to auto-voice users
 bind join - * auto_voice_on_join
 
-# Bind DEVOICE events to mark as "do not voice"
+# Bind DEVOICE events to track "do not voice"
 bind mode - * track_devoice
 
-# Bind REVOICE events to allow auto-voice again
+# Bind REVOICE events to remove from "do not voice"
 bind mode - * track_revoice
 
-# Function to auto-voice users when they join
+# Function to check if a channel is monitored
+proc is_monitored_channel {chan} {
+    global monitored_channels
+    return [expr {[lsearch -exact $monitored_channels $chan] != -1}]
+}
+
+# Function to auto-voice users when they join a monitored channel
 proc auto_voice_on_join {nick host hand chan} {
-    global no_voice_list monitored_channel
-    if {$chan ne $monitored_channel} {
+    global no_voice_list
+
+    if {![is_monitored_channel $chan]} {
         return
     }
 
@@ -68,14 +74,15 @@ proc auto_voice_on_join {nick host hand chan} {
         putserv "MODE $chan +v $nick"
         putlog "Auto-voiced user $nick ($user_ip_host) in $chan."
     } else {
-        putlog "Skipped auto-voicing $nick ($user_ip_host) because they are flagged as 'do not voice'."
+        putlog "Skipped auto-voicing $nick ($user_ip_host) in $chan because they are flagged as 'do not voice'."
     }
 }
 
 # Function to handle de-voice and add to no_voice_list
 proc track_devoice {nick host hand chan modes args} {
-    global no_voice_list monitored_channel
-    if {$chan ne $monitored_channel} {
+    global no_voice_list
+
+    if {![is_monitored_channel $chan]} {
         return
     }
 
@@ -93,8 +100,9 @@ proc track_devoice {nick host hand chan modes args} {
 
 # Function to handle re-voice and remove from no_voice_list
 proc track_revoice {nick host hand chan modes args} {
-    global no_voice_list monitored_channel
-    if {$chan ne $monitored_channel} {
+    global no_voice_list
+
+    if {![is_monitored_channel $chan]} {
         return
     }
 
@@ -102,8 +110,9 @@ proc track_revoice {nick host hand chan modes args} {
     if {[string match "+v*" $modes]} {
         foreach target $args {
             set user_ip_host [gethost $target]
-            if {[lsearch -exact $no_voice_list $user_ip_host] != -1} {
-                set no_voice_list [lreplace $no_voice_list [lsearch -exact $no_voice_list $user_ip_host] [lsearch -exact $no_voice_list $user_ip_host]]
+            set idx [lsearch -exact $no_voice_list $user_ip_host]
+            if {$idx != -1} {
+                set no_voice_list [lreplace $no_voice_list $idx $idx]
                 putlog "Removed $target ($user_ip_host) from 'no voice' list."
             }
         }
@@ -114,14 +123,14 @@ proc track_revoice {nick host hand chan modes args} {
 proc gethost {nick} {
     # Check if the user exists in the userlist
     if {[onchan $nick] != ""} {
-        # Use the 'onchan' command to fetch user's host/IP on the current channel
+        # Use the 'onchan' command to fetch user's host/IP
         set host [onchan $nick]
         if {$host ne ""} {
             return $host
         }
     }
 
-    # If 'onchan' doesn't work or user is not found, try using Eggdrop's internal userlist
+    # If 'onchan' doesn't work or user is not found, try Eggdrop's internal userlist
     set handle [matchattr $nick]
     if {$handle ne ""} {
         # Use 'hand2host' to retrieve the host/IP for a matched handle
