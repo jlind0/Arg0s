@@ -8,7 +8,7 @@ set no_voice_file "data/no_voice_list.txt"
 set no_voice_list {}
 
 # Channels to monitor (space-separated)
-set monitored_channels "#icons_of_vanity #odyss3us"
+set monitored_channels "#icons_of_vanity #odyss3us #crusher"
 
 # Function to save the no_voice_list to a file
 proc save_no_voice_list {} {
@@ -66,21 +66,23 @@ proc auto_voice_on_join {nick host hand chan} {
     if {![is_monitored_channel $chan]} {
         return
     }
-
-    # Check if user is in the no_voice_list
     set user_ip_host [gethost $nick]
-    if {[lsearch -exact $no_voice_list $user_ip_host] == -1} {
-        # User is not in no_voice_list; auto-voice them
-        putserv "MODE $chan +v $nick"
-        putlog "Auto-voiced user $nick ($user_ip_host) in $chan."
-    } else {
-        putlog "Skipped auto-voicing $nick ($user_ip_host) in $chan because they are flagged as 'do not voice'."
-    }
+    
+        # Check if user is in the no_voice_list
+        
+        if {[lsearch -exact $no_voice_list $user_ip_host] == -1} {
+            # User is not in no_voice_list; auto-voice them
+            utimer 30 [list putserv "MODE $chan +v $nick" ]
+            putlog "Auto-voiced user $nick ($user_ip_host) in $chan."
+        } else {
+            putlog "Skipped auto-voicing $nick ($user_ip_host) in $chan because they are flagged as 'do not voice'."
+        }
+    
 }
 
 # Function to handle de-voice and add to no_voice_list
 proc track_devoice {nick host hand chan modes args} {
-    global no_voice_list
+    global no_voice_list monitored_channels
 
     if {![is_monitored_channel $chan]} {
         return
@@ -91,8 +93,14 @@ proc track_devoice {nick host hand chan modes args} {
         foreach target $args {
             set user_ip_host [gethost $target]
             if {[lsearch -exact $no_voice_list $user_ip_host] == -1} {
+                # Add to no_voice_list
                 lappend no_voice_list $user_ip_host
                 putlog "Added $target ($user_ip_host) to 'no voice' list."
+
+                # De-voice the user in all monitored channels
+                foreach c $monitored_channels {
+                    putserv "MODE $c -v $target"
+                }
             }
         }
     }
